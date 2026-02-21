@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ORION — Auditoria ao Vivo</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --blue:#1B4A8A;--blue2:#2563B0;--bluel:#EBF2FC;
+  --pink:#C4738A;--pinkl:#FAF0F3;
+  --dark:#111827;--gray:#6B7280;--gray2:#9CA3AF;
+  --line:#E5E7EB;--bg:#F3F6FB;
+  --gold:#F59E0B;--green:#059669;--greenl:#ECFDF5;
+  --orange:#D97706;--orangel:#FFFBEB;
+  --purple:#7C3AED;--purplel:#F5F3FF;
+  --red:#DC2626;--redl:#FEF2F2;
+  --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--dark);min-height:100vh;-webkit-font-smoothing:antialiased}
+
+/* SETUP */
+#setup{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:var(--dark);padding:16px;
+  background-image:radial-gradient(circle at 20% 50%,rgba(27,74,138,.4) 0%,transparent 55%),
+                   radial-gradient(circle at 80% 50%,rgba(196,115,138,.3) 0%,transparent 55%)}
+.sb{background:white;border-radius:16px;padding:36px 32px;max-width:400px;width:100%;
+    box-shadow:0 24px 64px rgba(0,0,0,.4);text-align:center}
+.logo{width:52px;height:52px;background:linear-gradient(135deg,var(--blue),var(--pink));
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:20px;font-weight:800;color:white;margin:0 auto 16px}
+.sb h1{font-size:20px;font-weight:800;margin-bottom:6px}
+.sb>p{font-size:12px;color:var(--gray);margin-bottom:24px;line-height:1.6}
+
+.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px}
+.mc{border:2px solid var(--line);border-radius:10px;padding:16px 10px;cursor:pointer;transition:all .2s}
+.mc:hover{border-color:var(--blue)}.mc.sel{border-color:var(--blue);background:var(--bluel)}
+.mc-ico{font-size:26px;margin-bottom:7px}.mc-lbl{font-size:13px;font-weight:700;margin-bottom:3px}.mc-dsc{font-size:11px;color:var(--gray);line-height:1.4}
+
+.divider{display:flex;align-items:center;gap:8px;margin:14px 0;font-size:11px;color:var(--gray2)}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--line)}
+
+.code-badge{background:var(--dark);border-radius:12px;padding:18px 14px;margin-bottom:14px}
+.code-big{font-family:'JetBrains Mono',monospace;font-size:40px;font-weight:700;color:var(--gold);
+  letter-spacing:.22em;display:block;margin-bottom:4px}
+.code-hint{font-size:11px;color:rgba(255,255,255,.35)}
+
+.inp{width:100%;padding:13px 14px;border:2px solid var(--line);border-radius:9px;
+  font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;text-align:center;
+  letter-spacing:.2em;color:var(--blue);outline:none;transition:border-color .2s;
+  margin-bottom:10px;text-transform:uppercase}
+.inp:focus{border-color:var(--blue)}
+.inp::placeholder{font-size:13px;letter-spacing:0;color:var(--gray2);font-weight:400;font-family:'Inter',sans-serif}
+
+.btn-main{width:100%;padding:14px;border-radius:9px;border:none;font-family:'Inter',sans-serif;
+  font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;background:var(--blue);color:white}
+.btn-main:hover{background:var(--blue2);transform:translateY(-1px)}
+.btn-main:disabled{opacity:.4;transform:none;cursor:not-allowed}
+
+.status-line{font-size:12px;margin-top:10px;font-weight:600;min-height:18px;color:var(--gray)}
+.status-line.err{color:var(--red)}.status-line.ok{color:var(--green)}.status-line.warn{color:var(--orange)}
+
+/* APP */
+#app{display:none}
+header{background:white;border-bottom:1px solid var(--line);padding:0 20px;
+  display:flex;align-items:center;justify-content:space-between;
+  height:56px;position:sticky;top:0;z-index:100}
+.hdr-l{display:flex;align-items:center;gap:10px}
+.hdr-dot{width:30px;height:30px;background:linear-gradient(135deg,var(--blue),var(--pink));
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-weight:800;color:white;font-size:12px;flex-shrink:0}
+.hdr-title{font-size:13px;font-weight:700}
+.hdr-sub{font-size:10px;color:var(--gray)}
+.hdr-r{display:flex;align-items:center;gap:8px}
+.live-badge{display:flex;align-items:center;gap:5px;background:var(--greenl);
+  border:1px solid #BBF7D0;border-radius:20px;padding:4px 10px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.live-txt{font-size:10px;font-weight:700;color:var(--green);font-family:'JetBrains Mono',monospace}
+.sess-tag{background:var(--bg);border:1px solid var(--line);border-radius:20px;
+  padding:4px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;
+  color:var(--gray);font-weight:700;letter-spacing:.1em}
+.btn{padding:6px 13px;border-radius:7px;font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:all .18s}
+.btn-outline{background:transparent;color:var(--gray);border:1px solid var(--line)}.btn-outline:hover{background:var(--bg)}
+.btn-red{background:var(--redl);color:var(--red);border:1px solid #FCA5A5}.btn-red:hover{background:#FEE2E2}
+.btn-gold{background:var(--gold);color:white;font-weight:700}.btn-gold:hover{background:#D97706}
+
+.tabs{background:white;border-bottom:1px solid var(--line);padding:0 20px;display:flex}
+.tab{padding:13px 18px;font-size:12px;font-weight:600;color:var(--gray);cursor:pointer;
+  border-bottom:2px solid transparent;transition:all .18s;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tab:hover{color:var(--blue)}.tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+.badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px}
+
+.wrap{max-width:900px;margin:0 auto;padding:20px 16px}
+.page{display:none}.page.active{display:block}
+
+/* RANKING */
+.rk-top{text-align:center;margin-bottom:22px}
+.rk-top h1{font-size:24px;font-weight:800;margin-bottom:4px}
+.rk-top p{font-size:12px;color:var(--gray)}
+
+.podium{display:flex;justify-content:center;align-items:flex-end;gap:10px;margin-bottom:20px}
+.pod{flex:1;max-width:165px;text-align:center}
+.pod-medal{font-size:26px;margin-bottom:4px}
+.pod-name{font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px}
+.pod-pts{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700}
+.pod-bar{border-radius:5px 5px 0 0;margin-top:7px}
+.pod:nth-child(1) .pod-bar{height:60px;background:#94A3B8}
+.pod:nth-child(2) .pod-bar{height:92px;background:var(--gold)}
+.pod:nth-child(3) .pod-bar{height:46px;background:#CD7F32}
+.pod:nth-child(2) .pod-pts{color:var(--gold)}
+.pod:nth-child(1) .pod-pts{color:#94A3B8}
+.pod:nth-child(3) .pod-pts{color:#CD7F32}
+
+.avg-row{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:16px}
+.avg-box{background:white;border:1px solid var(--line);border-radius:var(--r);padding:10px 6px;text-align:center}
+.avg-l{font-size:9px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.avg-n{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700}
+
+.board{display:flex;flex-direction:column;gap:8px}
+.rc{background:white;border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;
+  display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:13px;
+  position:relative;overflow:hidden;transition:box-shadow .2s}
+.rc:hover{box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.rc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--line)}
+.rc.p1::before{background:var(--gold)}.rc.p2::before{background:#94A3B8}.rc.p3::before{background:#CD7F32}
+.rc-pos{font-size:20px;font-weight:800;text-align:center;font-family:'JetBrains Mono',monospace}
+.p1 .rc-pos{color:var(--gold)}.p2 .rc-pos{color:#94A3B8}.p3 .rc-pos{color:#CD7F32}
+.rc-name{font-size:13px;font-weight:700;margin-bottom:5px}
+.pills{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:5px}
+.pill{font-family:'JetBrains Mono',monospace;font-size:9px;padding:2px 6px;border-radius:20px;font-weight:600}
+.pf1{background:var(--bluel);color:var(--blue)}.pf2{background:var(--greenl);color:var(--green)}
+.pf3{background:var(--orangel);color:var(--orange)}.pf4{background:var(--purplel);color:var(--purple)}
+.pqz{background:var(--pinkl);color:var(--pink)}.paud{background:var(--bg);color:var(--gray);font-size:8px}
+.prog{height:3px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:4px}
+.prog-f{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--blue),var(--pink));transition:width .6s ease}
+.rc-right{text-align:right}
+.rc-tot{font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:800;color:var(--blue);line-height:1}
+.rc-max{font-size:10px;color:var(--gray);margin-top:2px}
+
+/* AUDITORIA */
+.who-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.who-card{background:white;border:2px solid var(--line);border-radius:var(--r);padding:11px 14px;
+  cursor:pointer;transition:all .18s;display:flex;align-items:center;gap:10px}
+.who-card:hover{border-color:var(--blue)}.who-card.sel{border-color:var(--blue);background:var(--bluel)}
+.who-em{font-size:22px}.who-lbl{font-size:13px;font-weight:700}.who-dsc{font-size:10px;color:var(--gray);margin-top:1px}
+
+.sec-bar{background:white;border:1px solid var(--line);border-radius:var(--r);padding:11px 15px;margin-bottom:11px}
+.sec-bar label{font-size:9px;font-weight:700;color:var(--gray);letter-spacing:.07em;text-transform:uppercase;display:block;margin-bottom:8px}
+.sec-btns{display:flex;gap:6px;flex-wrap:wrap}
+.sec-btn{padding:6px 12px;border-radius:6px;border:1.5px solid var(--line);background:white;
+  font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--gray);cursor:pointer;transition:all .15s}
+.sec-btn:hover{border-color:var(--blue);color:var(--blue)}.sec-btn.active{background:var(--blue);border-color:var(--blue);color:white}
+
+.aud-grid{display:grid;grid-template-columns:1fr 252px;gap:14px;align-items:start}
+.side-sticky{position:sticky;top:68px}
+
+.ph{background:white;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:8px}
+.ph-hdr{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.ph-hdr-l{display:flex;align-items:center;gap:9px}
+.ph-ico{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.ph-tit{font-size:13px;font-weight:700}.ph-sub{font-size:10px;color:var(--gray);margin-top:1px}
+.ph-sc{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700}
+.ph-body{padding:10px 15px}
+
+.crit{display:flex;align-items:flex-start;gap:9px;padding:9px 0;border-bottom:1px solid var(--bg)}
+.crit:last-child{border:none}
+.crit-t{flex:1;font-size:12px;line-height:1.55;color:var(--dark)}
+.crit-p{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--gray2);white-space:nowrap;padding-top:2px}
+.tog-w{display:flex;gap:4px;flex-shrink:0}
+.tog{padding:4px 10px;border-radius:5px;border:1.5px solid var(--line);font-family:'Inter',sans-serif;
+  font-size:11px;font-weight:700;cursor:pointer;transition:all .12s;background:white;color:var(--gray)}
+.tog.sim.on{background:#D1FAE5;border-color:#6EE7B7;color:var(--green)}
+.tog.nao.on{background:#FEE2E2;border-color:#FCA5A5;color:var(--red)}
+
+.quiz-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bg)}
+.quiz-item:last-child{border:none}
+.quiz-q{flex:1;font-size:12px;line-height:1.5;color:var(--dark)}
+.qpts{display:flex;gap:4px;flex-shrink:0}
+.qpt{width:30px;height:30px;border-radius:6px;border:1.5px solid var(--line);font-family:'JetBrains Mono',monospace;
+  font-size:12px;font-weight:700;cursor:pointer;transition:all .12s;background:white;color:var(--gray);
+  display:flex;align-items:center;justify-content:center}
+.qpt:hover{border-color:var(--pink);color:var(--pink)}.qpt.on{background:var(--pink);border-color:var(--pink);color:white}
+
+.score-card{background:white;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.sc-hdr{background:var(--dark);padding:12px 15px}
+.sc-hdr h3{font-size:12px;font-weight:700;color:white;margin-bottom:1px}
+.sc-hdr p{font-size:9px;color:rgba(255,255,255,.35);font-family:'JetBrains Mono',monospace}
+.sc-body{padding:11px 14px}
+.sr{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--bg);font-size:11px}
+.sr:last-child{border:none}
+.sr-l{color:var(--gray);font-weight:500;display:flex;align-items:center;gap:5px}
+.sr-v{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:12px}
+.total-box{background:var(--blue);border-radius:8px;padding:14px;text-align:center;margin-top:10px}
+.total-n{font-family:'JetBrains Mono',monospace;font-size:40px;font-weight:800;color:white;line-height:1}
+.total-d{font-size:13px;color:rgba(255,255,255,.45)}
+.total-l{font-size:9px;color:rgba(255,255,255,.5);margin-top:2px;letter-spacing:.06em;text-transform:uppercase}
+.sync-bar{margin-top:8px;padding:6px 10px;border-radius:6px;font-size:10px;font-weight:600;
+  text-align:center;display:flex;align-items:center;justify-content:center;gap:4px;transition:all .3s}
+.sync-bar.ok{background:var(--greenl);color:var(--green)}
+.sync-bar.go{background:var(--orangel);color:var(--orange)}
+.sync-bar.err{background:var(--redl);color:var(--red)}
+
+/* MODAL */
+.m-ov{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:500;display:flex;
+  align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
+.m-ov.on{opacity:1;pointer-events:all}
+.m-box{background:white;border-radius:18px;padding:40px 32px;max-width:360px;width:90%;text-align:center;
+  box-shadow:0 24px 80px rgba(0,0,0,.4);transform:scale(.92);transition:transform .25s}
+.m-ov.on .m-box{transform:scale(1)}
+.m-trophy{font-size:64px;margin-bottom:12px;animation:bop 1s infinite}
+@keyframes bop{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.m-sub{font-size:10px;font-weight:700;color:var(--gray);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+.m-name{font-size:26px;font-weight:800;color:var(--blue);margin-bottom:6px}
+.m-pts{font-family:'JetBrains Mono',monospace;font-size:48px;font-weight:800;color:var(--gold);line-height:1}
+.m-pts span{font-size:18px;color:var(--gray)}
+
+.toast{position:fixed;bottom:16px;right:16px;background:var(--dark);color:white;
+  padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;
+  box-shadow:0 4px 20px rgba(0,0,0,.25);opacity:0;transform:translateY(6px);
+  transition:all .25s;pointer-events:none;z-index:999}
+.toast.on{opacity:1;transform:translateY(0)}
+
+@media(max-width:620px){
+  .aud-grid{grid-template-columns:1fr}
+  .avg-row{grid-template-columns:repeat(3,1fr)}
+  .side-sticky{position:static}
+}
+</style>
+</head>
+<body>
+
+<!-- SETUP -->
+<div id="setup">
+  <div class="sb">
+    <div class="logo">LP</div>
+    <h1>ORION — Auditoria ao Vivo</h1>
+    <p>Facilitador cria a sessão e compartilha o código.<br>Auditores entram pelo celular com o mesmo código.</p>
+
+    <div class="mode-grid">
+      <div class="mc sel" id="m-painel" onclick="selMode('painel')">
+        <div class="mc-ico">📊</div>
+        <div class="mc-lbl">Painel / TV</div>
+        <div class="mc-dsc">Mostra o ranking em tempo real na TV</div>
+      </div>
+      <div class="mc" id="m-auditor" onclick="selMode('auditor')">
+        <div class="mc-ico">📋</div>
+        <div class="mc-lbl">Auditor</div>
+        <div class="mc-dsc">Registra as notas pelo celular</div>
+      </div>
+    </div>
+
+    <!-- só painel vê isso -->
+    <div id="painel-area">
+      <button class="btn-main" id="btn-criar" onclick="criarSessao()">Criar Nova Sessão</button>
+      <div class="divider">ou entrar em sessão existente</div>
+    </div>
+
+    <!-- código gerado -->
+    <div id="code-area" style="display:none">
+      <div class="code-badge">
+        <span class="code-big" id="code-display">—</span>
+        <span class="code-hint">Mande este código pelo WhatsApp para os auditores</span>
+      </div>
+      <button class="btn-main" onclick="entrar()">Entrar como Facilitador →</button>
+      <div class="divider" style="margin-top:12px">ou digitar outro código</div>
+    </div>
+
+    <!-- campo de código -->
+    <input class="inp" id="code-inp" maxlength="5" placeholder="Código da sessão"
+      oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'');checkInp()"/>
+    <button class="btn-main" id="enter-btn" onclick="entrar()" disabled>Entrar →</button>
+
+    <p id="status-line" class="status-line"></p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header>
+    <div class="hdr-l">
+      <div class="hdr-dot">LP</div>
+      <div>
+        <div class="hdr-title">ORION — Auditoria ao Vivo</div>
+        <div class="hdr-sub" id="hdr-sub">—</div>
+      </div>
+    </div>
+    <div class="hdr-r">
+      <div class="live-badge"><div class="live-dot"></div><span class="live-txt">AO VIVO</span></div>
+      <span class="sess-tag" id="hdr-sess">—</span>
+      <button class="btn btn-gold" id="btn-camp" onclick="showChamp()" style="display:none">🏆 Campeão</button>
+      <button class="btn btn-red" onclick="if(confirm('Sair?'))location.reload()">Sair</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs"></nav>
+
+  <div class="wrap">
+
+    <!-- RANKING -->
+    <div id="page-ranking" class="page active">
+      <div class="rk-top">
+        <h1>🏅 Ranking Geral</h1>
+        <p id="rank-sub">Aguardando auditores...</p>
+      </div>
+      <div class="podium"  id="podium"></div>
+      <div class="avg-row" id="avg-row"></div>
+      <div class="board"   id="board"></div>
+    </div>
+
+    <!-- AUDITORIA -->
+    <div id="page-audit" class="page">
+      <div class="who-row" id="who-row"></div>
+      <div class="sec-bar">
+        <label>Setor sendo auditado</label>
+        <div class="sec-btns" id="sec-btns"></div>
+      </div>
+      <div class="aud-grid">
+        <div id="phases-col"></div>
+        <div class="side-sticky">
+          <div class="score-card">
+            <div class="sc-hdr">
+              <h3 id="sb-sec">—</h3>
+              <p  id="sb-who">SCORECARD</p>
+            </div>
+            <div class="sc-body">
+              <div class="sr"><span class="sr-l"><span style="color:var(--blue)">●</span> F1 — 5S</span>     <span class="sr-v" id="sb1" style="color:var(--blue)">0/20</span></div>
+              <div class="sr"><span class="sr-l"><span style="color:var(--green)">●</span> F2 — Daily</span>  <span class="sr-v" id="sb2" style="color:var(--green)">0/25</span></div>
+              <div class="sr"><span class="sr-l"><span style="color:var(--orange)">●</span> F3 — Evento</span><span class="sr-v" id="sb3" style="color:var(--orange)">0/20</span></div>
+              <div class="sr"><span class="sr-l"><span style="color:var(--purple)">●</span> F4 — Gov.</span>   <span class="sr-v" id="sb4" style="color:var(--purple)">0/20</span></div>
+              <div class="sr"><span class="sr-l"><span style="color:var(--pink)">●</span> Quiz (5×3)</span>   <span class="sr-v" id="sb5" style="color:var(--pink)">0/15</span></div>
+              <div class="total-box">
+                <div><span class="total-n" id="sb-tot">0</span><span class="total-d">/100</span></div>
+                <div class="total-l">pontos totais</div>
+              </div>
+              <div class="sync-bar ok" id="sync-bar">✓ Sincronizado</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- TOAST + MODAL -->
+<div class="toast" id="toast"></div>
+<div class="m-ov" id="m-ov" onclick="if(event.target===this)this.classList.remove('on')">
+  <div class="m-box">
+    <div class="m-trophy">🏆</div>
+    <div class="m-sub">Setor Campeão</div>
+    <div class="m-name" id="m-name">—</div>
+    <div class="m-pts"><span id="m-pts">0</span><span>/100</span></div>
+    <div style="margin-top:22px">
+      <button class="btn btn-gold" style="padding:10px 28px;font-size:14px"
+        onclick="document.getElementById('m-ov').classList.remove('on')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// CONFIGURAÇÃO — broker MQTT público, zero cadastro
+// ═══════════════════════════════════════════════════
+const BROKER = 'wss://broker.emqx.io:8084/mqtt';
+
+// ═══════════════════════════════════════════════════
+// DADOS DO TREINAMENTO
+// ═══════════════════════════════════════════════════
+const SECTORS = [
+  {id:'op',name:'Operações',        emoji:'⚙️'},
+  {id:'at',name:'Atendimento',      emoji:'🎧'},
+  {id:'co',name:'Comercial',        emoji:'💼'},
+  {id:'fi',name:'Financeiro',       emoji:'💰'},
+  {id:'sq',name:'Suporte/Qualidade',emoji:'🔧'},
+];
+const PHASES = [
+  {id:'f1',label:'Fase 1 — 5S',            emoji:'🗂️',color:'var(--blue)',  bg:'var(--bluel)',  max:20,
+   cr:[{t:'Matriz FICA/SAI visível com decisões claras?',p:7},{t:'Layout do processo desenhado e compreensível?',p:7},{t:'Regra de padrão escrita e objetiva?',p:6}]},
+  {id:'f2',label:'Fase 2 — Daily',          emoji:'📋',color:'var(--green)', bg:'var(--greenl)', max:25,
+   cr:[{t:'Foco do dia claramente visível e único?',p:9},{t:'Foco, Impedimentos e Prioridades separados?',p:8},{t:'Daily curta, objetiva e organizou o dia?',p:8}]},
+  {id:'f3',label:'Fase 3 — Evento → Ação',  emoji:'🚨',color:'var(--orange)',bg:'var(--orangel)',max:20,
+   cr:[{t:'Evento classificado no quadro?',p:7},{t:'Responsável definido com cargo?',p:7},{t:'Próximo passo e prazo escritos de forma concreta?',p:6}]},
+  {id:'f4',label:'Fase 4 — Governança',     emoji:'🏛️',color:'var(--purple)',bg:'var(--purplel)',max:20,
+   cr:[{t:'Indicador + meta escritos de forma objetiva?',p:7},{t:'Dono (cargo) + cadência escritos?',p:7},{t:'Regra de reação: Se X, fazemos Y?',p:6}]},
+];
+const QUIZ = [
+  {id:'q1',t:'A equipe soube explicar o objetivo principal da fase?'},
+  {id:'q2',t:'Os papéis e responsabilidades ficaram claros para todos?'},
+  {id:'q3',t:'Houve comprometimento visível do líder durante a fase?'},
+  {id:'q4',t:'A equipe conseguiu ligar a atividade à rotina real do setor?'},
+  {id:'q5',t:'O grupo demonstrou aprendizado e evolução ao longo da fase?'},
+];
+
+// ═══════════════════════════════════════════════════
+// ESTADO
+// ═══════════════════════════════════════════════════
+let client, sessionId='', myMode='painel', myAud='a1', mySec=SECTORS[0].id;
+// liveData[auditorId][sectorId] = {f1:{0:true,...}, ..., q1:2, ...}
+let liveData = {a1:{}, a2:{}};
+let syncTimer = null;
+
+// ═══════════════════════════════════════════════════
+// SETUP UI
+// ═══════════════════════════════════════════════════
+function selMode(m){
+  myMode=m;
+  document.getElementById('m-painel').classList.toggle('sel',m==='painel');
+  document.getElementById('m-auditor').classList.toggle('sel',m==='auditor');
+  document.getElementById('painel-area').style.display = m==='painel' ? '' : 'none';
+}
+selMode('painel');
+
+function genCode(){
+  const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({length:5},()=>c[Math.floor(Math.random()*c.length)]).join('');
+}
+
+function criarSessao(){
+  const code = genCode();
+  document.getElementById('code-display').textContent = code;
+  document.getElementById('code-area').style.display  = '';
+  document.getElementById('code-inp').value           = code;
+  document.getElementById('enter-btn').disabled       = false;
+  sessionId = code;
+}
+
+function checkInp(){
+  document.getElementById('enter-btn').disabled =
+    document.getElementById('code-inp').value.length < 4;
+}
+
+function entrar(){
+  const code = document.getElementById('code-inp').value.trim().toUpperCase();
+  if(!code || code.length < 4){ setStatus('Código inválido.','err'); return; }
+  sessionId = code;
+  setStatus('⟳ Conectando...','warn');
+  conectarMQTT();
+}
+
+function setStatus(msg, cls=''){
+  const el = document.getElementById('status-line');
+  el.textContent = msg;
+  el.className = 'status-line ' + cls;
+}
+
+// ═══════════════════════════════════════════════════
+// MQTT
+// ═══════════════════════════════════════════════════
+function conectarMQTT(){
+  const clientId = 'orion_' + Math.random().toString(36).slice(2,8);
+  client = mqtt.connect(BROKER, {
+    clientId,
+    keepalive: 30,
+    reconnectPeriod: 3000,
+    connectTimeout: 8000,
+  });
+
+  client.on('connect', () => {
+    // Inscreve para receber dados de ambos auditores nesta sessão
+    client.subscribe(`orion/${sessionId}/a1/#`);
+    client.subscribe(`orion/${sessionId}/a2/#`);
+    setStatus('','');
+    startApp();
+  });
+
+  client.on('message', (topic, payload) => {
+    // topic: orion/{code}/{audId}/{secId}
+    try {
+      const parts  = topic.split('/');
+      const audId  = parts[2]; // a1 ou a2
+      const secId  = parts[3]; // op, at, co, fi, sq
+      const data   = JSON.parse(payload.toString());
+      if(!liveData[audId]) liveData[audId] = {};
+      liveData[audId][secId] = data;
+      renderRanking();
+      if(myMode === 'auditor' && audId === myAud && secId === mySec) renderPhases();
+    } catch(e){}
+  });
+
+  client.on('error', () => setStatus('Erro de conexão. Tente novamente.','err'));
+  client.on('offline', () => setSyncBar('err'));
+  client.on('reconnect', () => setSyncBar('go'));
+}
+
+// Publica dados do setor atual do auditor
+function publicar(){
+  if(!client || !client.connected){ setSyncBar('err'); return; }
+  const secData = liveData[myAud]?.[mySec] || {};
+  const topic   = `orion/${sessionId}/${myAud}/${mySec}`;
+  client.publish(topic, JSON.stringify(secData), {retain: true, qos: 1});
+  setSyncBar('ok');
+}
+
+function debPublicar(){
+  setSyncBar('go');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(publicar, 400);
+}
+
+// ═══════════════════════════════════════════════════
+// START APP
+// ═══════════════════════════════════════════════════
+function startApp(){
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('app').style.display   = 'block';
+  document.getElementById('hdr-sess').textContent = sessionId;
+  document.getElementById('hdr-sub').textContent  =
+    myMode==='painel' ? 'PAINEL / FACILITADOR' : 'MODO AUDITOR';
+
+  buildTabs();
+  if(myMode==='painel') document.getElementById('btn-camp').style.display = '';
+  if(myMode==='auditor') renderAuditUI();
+  renderRanking();
+}
+
+// ═══════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════
+function buildTabs(){
+  const t = document.getElementById('tabs');
+  if(myMode==='painel'){
+    t.innerHTML=`<div class="tab active" onclick="showPage('ranking',this)">
+      📊 Ranking ao Vivo <span class="badge" style="background:var(--bluel);color:var(--blue)">AO VIVO</span></div>`;
+  } else {
+    t.innerHTML=`
+      <div class="tab" onclick="showPage('ranking',this)">📊 Ranking</div>
+      <div class="tab active" onclick="showPage('audit',this)">
+        📋 Minha Auditoria
+        <span class="badge" style="background:var(--pinkl);color:var(--pink)">AUDITOR</span></div>`;
+  }
+}
+function showPage(id,el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if(el) el.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════
+// CÁLCULOS
+// ═══════════════════════════════════════════════════
+function phScore(secData, phId){
+  if(!secData || !secData[phId]) return 0;
+  const ph = PHASES.find(p=>p.id===phId);
+  return ph.cr.reduce((s,c,i) => s + (secData[phId][i]===true ? c.p : 0), 0);
+}
+function qzScore(secData){
+  if(!secData) return 0;
+  return QUIZ.reduce((s,q) => s + Math.min(3, Math.max(0, Number(secData[q.id])||0)), 0);
+}
+function secTotal(secData){
+  return PHASES.reduce((s,ph) => s + phScore(secData,ph.id), 0) + qzScore(secData);
+}
+
+// Merge: se dois auditores avaliaram, usa consenso (ambos SIM) nos critérios e média no quiz
+function mergeSetor(secId){
+  const s1 = liveData.a1?.[secId] || null;
+  const s2 = liveData.a2?.[secId] || null;
+  if(!s1 && !s2) return {d:null, src:[]};
+  if(!s1) return {d:s2, src:['A2']};
+  if(!s2) return {d:s1, src:['A1']};
+
+  const m = {};
+  PHASES.forEach(ph=>{
+    m[ph.id] = {};
+    ph.cr.forEach((_,i)=>{
+      const v1 = s1[ph.id]?.[i] ?? null;
+      const v2 = s2[ph.id]?.[i] ?? null;
+      if(v1!==null && v2!==null) m[ph.id][i] = (v1===true && v2===true);
+      else m[ph.id][i] = v1!==null ? v1 : v2;
+    });
+  });
+  QUIZ.forEach(q=>{
+    const q1 = Math.min(3,Number(s1[q.id])||0);
+    const q2 = Math.min(3,Number(s2[q.id])||0);
+    m[q.id] = Math.round((q1+q2)/2);
+  });
+  return {d:m, src:['A1','A2']};
+}
+
+function getMerged(){
+  return SECTORS.map(sec=>{
+    const {d, src} = mergeSetor(sec.id);
+    return {
+      ...sec, src,
+      f1:phScore(d,'f1'), f2:phScore(d,'f2'), f3:phScore(d,'f3'), f4:phScore(d,'f4'),
+      qz:qzScore(d), total:secTotal(d),
+    };
+  }).sort((a,b)=>b.total-a.total);
+}
+
+// ═══════════════════════════════════════════════════
+// RENDER RANKING
+// ═══════════════════════════════════════════════════
+function renderRanking(){
+  const data = getMerged();
+  const temDados = data.some(d=>d.total>0);
+  document.getElementById('rank-sub').textContent =
+    temDados ? 'Sincronizado em tempo real' : 'Aguardando auditores registrarem as primeiras notas...';
+
+  // Pódio (2º - 1º - 3º)
+  const top3 = data.slice(0,3);
+  const ord  = top3.length >= 2 ? [top3[1],top3[0],top3[2]].filter(Boolean) : top3;
+  document.getElementById('podium').innerHTML = ord.map((s,i)=>`
+    <div class="pod">
+      <div class="pod-medal">${['🥈','🥇','🥉'][i]}</div>
+      <div class="pod-name">${s.emoji} ${s.name}</div>
+      <div class="pod-pts">${s.total}</div>
+      <div class="pod-bar"></div>
+    </div>`).join('');
+
+  // Médias
+  const avg = k => (data.reduce((s,d)=>s+d[k],0)/data.length).toFixed(1);
+  document.getElementById('avg-row').innerHTML = [
+    {l:'5S',    v:avg('f1'), c:'var(--blue)'},
+    {l:'Daily', v:avg('f2'), c:'var(--green)'},
+    {l:'Evento',v:avg('f3'), c:'var(--orange)'},
+    {l:'Gov.',  v:avg('f4'), c:'var(--purple)'},
+    {l:'Quiz',  v:avg('qz'), c:'var(--pink)'},
+  ].map(s=>`
+    <div class="avg-box">
+      <div class="avg-l">${s.l}</div>
+      <div class="avg-n" style="color:${s.c}">${s.v}</div>
+    </div>`).join('');
+
+  // Scoreboard
+  const pc = ['p1','p2','p3','',''];
+  document.getElementById('board').innerHTML = data.map((s,i)=>`
+    <div class="rc ${pc[i]||''}">
+      <div class="rc-pos">${i+1}</div>
+      <div>
+        <div class="rc-name">${s.emoji} ${s.name}</div>
+        <div class="pills">
+          <span class="pill pf1">5S: ${s.f1}/20</span>
+          <span class="pill pf2">Daily: ${s.f2}/25</span>
+          <span class="pill pf3">Evento: ${s.f3}/20</span>
+          <span class="pill pf4">Gov: ${s.f4}/20</span>
+          <span class="pill pqz">Quiz: ${s.qz}/15</span>
+          ${s.src.map(x=>`<span class="pill paud">📱${x}</span>`).join('')}
+          ${s.src.length===2?'<span class="pill paud">⚖️ consenso</span>':''}
+        </div>
+        <div class="prog"><div class="prog-f" style="width:${s.total}%"></div></div>
+      </div>
+      <div class="rc-right">
+        <div class="rc-tot">${s.total}</div>
+        <div class="rc-max">de 100 pts</div>
+      </div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════
+// RENDER AUDITORIA
+// ═══════════════════════════════════════════════════
+function renderAuditUI(){
+  document.getElementById('who-row').innerHTML = `
+    <div class="who-card sel" id="pick-a1" onclick="pickAud('a1')">
+      <div class="who-em">🔵</div>
+      <div><div class="who-lbl">Auditor 1</div><div class="who-dsc">Primeiro avaliador</div></div>
+    </div>
+    <div class="who-card" id="pick-a2" onclick="pickAud('a2')">
+      <div class="who-em">🟣</div>
+      <div><div class="who-lbl">Auditor 2</div><div class="who-dsc">Segundo avaliador</div></div>
+    </div>`;
+  document.getElementById('sec-btns').innerHTML = SECTORS.map(s=>
+    `<button class="sec-btn ${s.id===mySec?'active':''}" onclick="pickSec('${s.id}')">${s.emoji} ${s.name}</button>`
+  ).join('');
+  renderPhases();
+}
+
+function renderPhases(){
+  const sec = SECTORS.find(s=>s.id===mySec);
+  document.getElementById('sb-sec').textContent = sec.emoji+'  '+sec.name;
+  document.getElementById('sb-who').textContent = (myAud==='a1'?'🔵 AUDITOR 1':'🟣 AUDITOR 2')+' — SCORECARD';
+
+  const sd = liveData[myAud]?.[mySec] || {};
+
+  // Fases SIM/NÃO
+  let html = PHASES.map(ph => {
+    const earned = phScore(sd, ph.id);
+    const crits  = ph.cr.map((c,i) => {
+      const v = sd[ph.id]?.[i] ?? null;
+      return `<div class="crit">
+        <div class="crit-t">${i+1}. ${c.t}</div>
+        <div class="crit-p">${c.p}p</div>
+        <div class="tog-w">
+          <button class="tog sim ${v===true?'on':''}"  onclick="setAns('${ph.id}',${i},true)">SIM</button>
+          <button class="tog nao ${v===false?'on':''}" onclick="setAns('${ph.id}',${i},false)">NÃO</button>
+        </div>
+      </div>`;
+    }).join('');
+    return `<div class="ph">
+      <div class="ph-hdr">
+        <div class="ph-hdr-l">
+          <div class="ph-ico" style="background:${ph.bg}">${ph.emoji}</div>
+          <div><div class="ph-tit">${ph.label}</div><div class="ph-sub">máx ${ph.max} pts</div></div>
+        </div>
+        <div class="ph-sc" style="color:${ph.color}">${earned}/${ph.max}</div>
+      </div>
+      <div class="ph-body">${crits}</div>
+    </div>`;
+  }).join('');
+
+  // Quiz 5×3
+  const qzTot = qzScore(sd);
+  html += `<div class="ph">
+    <div class="ph-hdr">
+      <div class="ph-hdr-l">
+        <div class="ph-ico" style="background:var(--pinkl)">🎯</div>
+        <div><div class="ph-tit">Quiz — 5 perguntas × 3 pts</div><div class="ph-sub">máx 15 pts</div></div>
+      </div>
+      <div class="ph-sc" style="color:var(--pink)">${qzTot}/15</div>
+    </div>
+    <div class="ph-body">
+      ${QUIZ.map(q => {
+        const v = Math.min(3, Number(sd[q.id])||0);
+        return `<div class="quiz-item">
+          <div class="quiz-q">${q.t}</div>
+          <div class="qpts">
+            ${[0,1,2,3].map(n=>`<button class="qpt ${v===n?'on':''}" onclick="setQuiz('${q.id}',${n})">${n}</button>`).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+
+  document.getElementById('phases-col').innerHTML = html;
+  updateSidebar();
+}
+
+function updateSidebar(){
+  const sd = liveData[myAud]?.[mySec] || {};
+  document.getElementById('sb1').textContent = phScore(sd,'f1')+'/20';
+  document.getElementById('sb2').textContent = phScore(sd,'f2')+'/25';
+  document.getElementById('sb3').textContent = phScore(sd,'f3')+'/20';
+  document.getElementById('sb4').textContent = phScore(sd,'f4')+'/20';
+  document.getElementById('sb5').textContent = qzScore(sd)+'/15';
+  document.getElementById('sb-tot').textContent = secTotal(sd);
+}
+
+// ═══════════════════════════════════════════════════
+// INTERAÇÕES
+// ═══════════════════════════════════════════════════
+function pickAud(id){
+  myAud = id;
+  document.getElementById('pick-a1').classList.toggle('sel',id==='a1');
+  document.getElementById('pick-a2').classList.toggle('sel',id==='a2');
+  renderPhases();
+}
+function pickSec(id){
+  mySec = id;
+  document.querySelectorAll('.sec-btn').forEach((b,i)=>b.classList.toggle('active',SECTORS[i].id===id));
+  renderPhases();
+}
+function ensurePath(){
+  if(!liveData[myAud])         liveData[myAud]         = {};
+  if(!liveData[myAud][mySec])  liveData[myAud][mySec]  = {};
+}
+function setAns(phId, idx, val){
+  ensurePath();
+  if(!liveData[myAud][mySec][phId]) liveData[myAud][mySec][phId] = {};
+  liveData[myAud][mySec][phId][idx] = val;
+  renderPhases();
+  renderRanking();
+  debPublicar();
+}
+function setQuiz(qId, val){
+  ensurePath();
+  liveData[myAud][mySec][qId] = val;
+  renderPhases();
+  renderRanking();
+  debPublicar();
+}
+
+function setSyncBar(s){
+  const el = document.getElementById('sync-bar');
+  if(!el) return;
+  const m = {ok:{c:'ok',t:'✓ Sincronizado'},go:{c:'go',t:'⟳ Enviando...'},err:{c:'err',t:'⚠️ Sem conexão'}};
+  el.className = 'sync-bar '+m[s].c;
+  el.textContent = m[s].t;
+}
+
+// ═══════════════════════════════════════════════════
+// CAMPEÃO + TOAST
+// ═══════════════════════════════════════════════════
+function showChamp(){
+  const w = getMerged()[0];
+  document.getElementById('m-name').textContent = w.emoji+'  '+w.name;
+  document.getElementById('m-pts').textContent  = w.total;
+  document.getElementById('m-ov').classList.add('on');
+}
+let _tt;
+function showToast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(_tt); _tt = setTimeout(()=>el.classList.remove('on'), 3000);
+}
+</script>
+</body>
+</html>
